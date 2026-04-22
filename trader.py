@@ -601,8 +601,16 @@ class Trader:
                 log.exception("Error during one-shot tick: %s", exc)
             return
 
+        _stop_file = os.path.join(getattr(config, "LOG_DIR", "logs"), "STOP")
         try:
             while True:
+                if os.path.exists(_stop_file):
+                    try:
+                        os.remove(_stop_file)
+                    except OSError:
+                        pass
+                    log.info("Stop file detected (%s) — shutting down cleanly.", _stop_file)
+                    break
                 try:
                     if ignore_market_hours or self.market_is_open():
                         self.tick()
