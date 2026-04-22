@@ -11,7 +11,7 @@ validated the base case.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional, Set
+from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -102,7 +102,7 @@ def cross_sectional_momentum_filter(
     as_of: pd.Timestamp,
     lookback_days: int,
     top_pct: float,
-) -> Optional[Set[str]]:
+) -> Optional[Dict[str, float]]:
     """
     Rank symbols by trailing return as of `as_of` and return the top fraction.
 
@@ -135,7 +135,7 @@ def cross_sectional_momentum_filter(
 
     n_top = max(1, int(round(len(returns) * top_pct)))
     sorted_symbols = sorted(returns, key=returns.get, reverse=True)
-    return set(sorted_symbols[:n_top])
+    return {s: returns[s] for s in sorted_symbols[:n_top]}
 
 
 # ---------------------------------------------------------------------------

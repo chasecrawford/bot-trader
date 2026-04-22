@@ -55,12 +55,16 @@ class RiskManager:
         """Call once per trading day before any signals are evaluated."""
         if self.current_day != today:
             self.current_day = today
-            self.day_start_equity = equity
+            self.day_start_equity = None
             self.trading_halted = False
+        # Latch the first valid (non-zero) equity reading of the day.
+        # Alpaca can return 0 during market-open transitions; don't lock that in.
+        if self.day_start_equity is None and equity > 0:
+            self.day_start_equity = equity
 
     def check_daily_loss(self, current_equity: float) -> bool:
         """Return True if the daily loss limit has been breached."""
-        if self.day_start_equity is None:
+        if not self.day_start_equity:
             return False
         drawdown = (self.day_start_equity - current_equity) / self.day_start_equity
         if drawdown >= self.max_daily_loss_pct:

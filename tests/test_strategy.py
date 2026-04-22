@@ -115,7 +115,7 @@ class TestCrossSectionalMomentum:
             bars_by_symbol, as_of, lookback_days=120, top_pct=0.20
         )
         # Top 20% of 5 = 1 symbol — must be the biggest gainer
-        assert top == {"WINR1"}
+        assert set(top) == {"WINR1"}
 
     def test_returns_two_when_top_40pct_of_five(self):
         bars_by_symbol = {
@@ -129,7 +129,7 @@ class TestCrossSectionalMomentum:
         top = cross_sectional_momentum_filter(
             bars_by_symbol, as_of, lookback_days=120, top_pct=0.40
         )
-        assert top == {"A", "B"}
+        assert set(top) == {"A", "B"}
 
     def test_returns_none_when_too_few_symbols(self):
         bars_by_symbol = {

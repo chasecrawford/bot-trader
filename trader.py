@@ -428,7 +428,7 @@ class Trader:
                  len(bars_by_symbol), len(config.WATCHLIST))
 
         # 3. Cross-sectional momentum filter — restrict entries to top quintile.
-        top_momentum: Optional[set] = None
+        top_momentum: Optional[dict] = None
         as_of = max(
             (df.index[-1] for df in bars_by_symbol.values() if not df.empty),
             default=None,
@@ -517,6 +517,24 @@ class Trader:
             n_buys, n_sells, n_holds, n_skipped_no_top, n_skipped_other,
             len(eligible_buys),
         )
+
+        # Rank eligible buys by momentum score (strongest first) so the position
+        # cap keeps the highest-conviction signals, not the alphabetically first.
+        # When cross-sectional is active, reuse its already-computed scores.
+        # When it's off, compute a trailing return from the same bar data.
+        _cs_lookback = getattr(config, "CROSS_SECTIONAL_LOOKBACK_DAYS", 126)
+
+        def _momentum_score(sym: str) -> float:
+            if top_momentum is not None:
+                return top_momentum.get(sym, -float("inf"))
+            bars = bars_by_symbol.get(sym)
+            if bars is None or len(bars) < _cs_lookback + 1:
+                return -float("inf")
+            past = float(bars.iloc[-_cs_lookback - 1]["close"])
+            curr = float(bars.iloc[-1]["close"])
+            return (curr - past) / past if past > 0 else -float("inf")
+
+        eligible_buys.sort(key=lambda item: _momentum_score(item[0]), reverse=True)
 
         # Submit eligible buys. Re-check the cap each iteration so it's
         # honored as positions accumulate within this tick. In dry-run we
