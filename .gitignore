@@ -1,0 +1,53 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Secrets — never commit these
+*.key
+*.secret
+credentials.json
+.alpaca
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs and local data
+*.log
+logs/
+trades.db
+trades.csv
+heartbeat.json
+
+# Claude Code local config (per-user permissions, not portable)
+.claude/
+
+# OS junk
+Thumbs.db
+desktop.ini
