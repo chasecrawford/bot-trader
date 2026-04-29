@@ -32,6 +32,7 @@ except ImportError:
 
 import config
 from monitoring import Heartbeat, setup_logging
+from stop_cooldown import StopCooldownRegistry
 from order_log import record_order
 from risk_manager import RiskManager
 from strategy import (
@@ -85,6 +86,12 @@ class Trader:
                                            "heartbeat.json"))
         # Track entry time per position so we can log a full round-trip at exit.
         self._entry_times: dict[str, datetime] = {}
+        # Persistent cooldown registry — blocks re-entry after a stop-out for
+        # >= 5 days AND until price recovers above the stop level (hard expiry
+        # after 30 days). Survives daily restarts via a JSON file.
+        self.stop_cooldown = StopCooldownRegistry(
+            getattr(config, "STOP_COOLDOWN_FILE", "logs/stop_cooldown.json")
+        )
         self._sync_existing_positions()
 
     # ------------------------------------------------------------------ #
@@ -198,7 +205,9 @@ class Trader:
     # Orders                                                             #
     # ------------------------------------------------------------------ #
     # How long to wait for a market order to fill before giving up.
-    FILL_TIMEOUT_SEC = 30
+    # 60s gives extra headroom for slow fills at market open during volatile
+    # conditions without meaningfully delaying the tick in normal operation.
+    FILL_TIMEOUT_SEC = 60
     FILL_POLL_INTERVAL_SEC = 1
 
     def _wait_for_fill(self, order_id: str):
@@ -209,6 +218,12 @@ class Trader:
         if the order was rejected, canceled, or didn't fill in time. On
         timeout we attempt to cancel so a stale order can't fill later
         and silently desync us from broker state.
+
+        After the cancel attempt we do one final status check. A cancel
+        request and a fill can race each other — if the order filled in the
+        window between our timeout and the cancel arriving at the broker, we
+        process it normally rather than leaving position state in limbo (which
+        could cause a double-sell on the next tick).
         """
         terminal = {"filled", "partially_filled", "canceled", "rejected",
                     "expired", "done_for_day"}
@@ -236,6 +251,21 @@ class Trader:
         except Exception as exc:
             log.warning("Cancel of %s failed (order may still fill): %s",
                         order_id, exc)
+
+        # Final status check — the cancel may have lost the race with a fill.
+        # If the order is now filled, return it so the caller can update
+        # position state correctly instead of silently leaving it out of sync.
+        try:
+            final = self.api.get_order(order_id)
+            if final.status in ("filled", "partially_filled"):
+                log.warning(
+                    "Order %s filled despite cancel attempt — processing fill "
+                    "to keep position state consistent.", order_id,
+                )
+                return final
+        except Exception as exc:
+            log.warning("Final status check for %s failed: %s", order_id, exc)
+
         return None
 
     def submit_buy(
@@ -416,7 +446,11 @@ class Trader:
             reason = self.risk.should_stop_out(symbol, price)
             if reason:
                 pos = self.risk.positions[symbol]
-                self.submit_sell(symbol, pos.qty, price, reason)
+                stop_price = self.risk.stop_price_for(
+                    pos.entry_price, pos.atr_at_entry
+                )
+                if self.submit_sell(symbol, pos.qty, price, reason):
+                    self.stop_cooldown.record_stop(symbol, stop_price, today)
 
         # 2. Fetch bars for the whole universe in BATCH — both the per-symbol
         # signal AND the cross-sectional filter need the same data. Batching
@@ -493,6 +527,10 @@ class Trader:
 
             if result.signal == Signal.BUY:
                 n_buys += 1
+                last_close = float(bars.iloc[-1]["close"]) if not bars.empty else 0.0
+                if self.stop_cooldown.is_blocked(symbol, last_close, today):
+                    n_skipped_other += 1
+                    continue
                 if not self.risk.can_open_position(symbol):
                     n_skipped_other += 1
                     continue
@@ -647,4 +685,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # os._exit skips Python's shutdown sequence, which would otherwise hang
+    # waiting for urllib3 connection-pool threads (non-daemon) to finish.
+    os._exit(main())

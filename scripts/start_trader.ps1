@@ -5,4 +5,5 @@ $repo = "C:\Users\Chase\Repos\bot-trader"
 $env:PYTHONIOENCODING = "utf-8"
 Set-Location $repo
 if (-not (Test-Path "logs")) { New-Item -Path "logs" -ItemType Directory | Out-Null }
+Remove-Item "$repo\logs\STOP" -ErrorAction SilentlyContinue
 & "$repo\.venv\Scripts\python.exe" "trader.py"
