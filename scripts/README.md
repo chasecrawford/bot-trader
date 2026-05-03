@@ -11,11 +11,12 @@
 
 | Script | Purpose |
 |---|---|
-| `start_trader.ps1` | Launches `python trader.py` from the repo root. Cleans any stale `logs\STOP` on startup. |
-| `stop_trader.ps1` | Creates `logs\STOP` to request a graceful exit. Re-creates it each poll cycle (so multiple instances all see it). Force-kills any survivors after 370s. |
-| `register_tasks.ps1` | One-shot setup: registers `BotTrader-Start` (09:33 ET Mon-Fri) and `BotTrader-Stop` (16:02 ET Mon-Fri) in Windows Task Scheduler. Run as Administrator. |
+| `start_trader.ps1` | Launches `python trader.py` (EMA sleeve daemon) from the repo root. Cleans any stale `logs\STOP` on startup. |
+| `stop_trader.ps1` | Creates `logs\STOP` to request a graceful EMA-sleeve exit. Re-creates it each poll cycle (so multiple instances all see it). Force-kills any survivors after 370s. |
+| `start_dual_momentum.ps1` | One-shot launcher for `live_dual_momentum.py` (DM sleeve). The script self-skips on non-month-end days via Alpaca's calendar, so daily invocation is safe. |
+| `register_tasks.ps1` | One-shot setup: registers `BotTrader-Start` (09:33 ET), `BotTrader-Stop` (16:02 ET), and `BotTrader-DualMomentum` (15:00 ET) in Windows Task Scheduler, all weekdays. Run as Administrator. |
 
-All three resolve their repo path via `$PSScriptRoot\..`, so they work from
+All four resolve their repo path via `$PSScriptRoot\..`, so they work from
 any clone location without editing.
 
 ## Setup (one-time)
@@ -26,15 +27,16 @@ From an **elevated** PowerShell at the repo root:
 Start-Process powershell -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$PWD\scripts\register_tasks.ps1`""
 ```
 
-This creates two Task Scheduler entries that run as the current user, with
+This creates three Task Scheduler entries that run as the current user, with
 `LogonType S4U` (no stored password; runs even when the user is logged out).
 Run-times are weekdays only.
 
 To remove them later:
 
 ```powershell
-Unregister-ScheduledTask -TaskName "BotTrader-Start" -Confirm:$false
-Unregister-ScheduledTask -TaskName "BotTrader-Stop"  -Confirm:$false
+Unregister-ScheduledTask -TaskName "BotTrader-Start"        -Confirm:$false
+Unregister-ScheduledTask -TaskName "BotTrader-Stop"         -Confirm:$false
+Unregister-ScheduledTask -TaskName "BotTrader-DualMomentum" -Confirm:$false
 ```
 
 ## What the scripts assume
@@ -48,12 +50,14 @@ Unregister-ScheduledTask -TaskName "BotTrader-Stop"  -Confirm:$false
 
 ## Building the equivalent on macOS/Linux
 
-The two operations you need:
+The three operations you need:
 
-1. **Start at market open**: `cd /path/to/bot-trader && python trader.py`
-2. **Stop at market close**: `touch /path/to/bot-trader/logs/STOP`, then wait
-   ~6 minutes (one poll interval + grace), then `pkill -f trader.py` if
+1. **Start EMA sleeve at market open**: `cd /path/to/bot-trader && python trader.py`
+2. **Stop EMA sleeve at market close**: `touch /path/to/bot-trader/logs/STOP`, then
+   wait ~6 minutes (one poll interval + grace), then `pkill -f trader.py` if
    anything survives.
+3. **Run DM sleeve daily mid-afternoon**: `cd /path/to/bot-trader && python live_dual_momentum.py`
+   — the script self-skips on non-month-end days, so daily invocation is safe.
 
 `cron` example (US/Eastern; adjust for your TZ or use `CRON_TZ`):
 
@@ -61,6 +65,7 @@ The two operations you need:
 33 9  * * 1-5  cd /path/to/bot-trader && /path/to/.venv/bin/python trader.py >> logs/trader.out 2>&1
 2  16 * * 1-5  touch /path/to/bot-trader/logs/STOP
 8  16 * * 1-5  pkill -f "python trader.py" 2>/dev/null
+0  15 * * 1-5  cd /path/to/bot-trader && /path/to/.venv/bin/python live_dual_momentum.py >> logs/dm.out 2>&1
 ```
 
 For systemd, the equivalent is a `bot-trader.service` unit + two `.timer`
