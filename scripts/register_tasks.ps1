@@ -1,8 +1,9 @@
 # register_tasks.ps1 — run ONCE as Administrator to create the two Task Scheduler
 # jobs that start and stop the EMA sleeve trader on weekday market hours.
-# Invoke via:  Start-Process powershell -Verb RunAs -ArgumentList '-ExecutionPolicy Bypass -File "C:\Users\Chase\Repos\bot-trader\scripts\register_tasks.ps1"'
+# Invoke via:  Start-Process powershell -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$PWD\scripts\register_tasks.ps1`""
+# (run that command from the repo root; the script resolves its repo path automatically.)
 
-$repo = "C:\Users\Chase\Repos\bot-trader"
+$repo = (Resolve-Path "$PSScriptRoot\..").Path
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 Write-Host "Registering tasks for user: $user"

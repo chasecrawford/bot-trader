@@ -129,7 +129,7 @@ ATR_TRAIL_MULT = 6.0          # Trailing stop at hwm - 6.0 * ATR(at entry); 0 di
 STOP_LOSS_PCT = 0.05          # Hard stop: exit if price drops 5% below entry
 TRAILING_STOP_PCT = 1.0       # Percent trail disabled; ATR trail is primary
 MAX_DAILY_LOSS_PCT = 0.03     # Halt trading for the day at 3% portfolio loss
-MAX_OPEN_POSITIONS = 10       # Cap simultaneous positions; with MAX_POSITION_PCT=0.10 = 100% deployed when 10 signals available
+MAX_OPEN_POSITIONS = 10       # Cap simultaneous positions; with MAX_POSITION_PCT=0.09 = 90% gross deployed when 10 signals fire (10% cash buffer prevents margin use)
 
 # ---------------------------------------------------------------------------
 # Execution

@@ -62,7 +62,9 @@ bot-trader/
 ├── tests/                     # 97 unit tests — run with `pytest`
 ├── logs/                      # Trader log + heartbeat + orders.csv
 ├── requirements.txt
-└── README.md
+├── README.md
+├── STRATEGY.md                # EMA v2 strategy deep-dive
+└── LICENSE
 ```
 
 ## Setup
@@ -111,8 +113,9 @@ Should print `✓ Authenticated.` and show your paper account balance.
 ### 5. Review `config.py`
 
 Key settings to check:
-- `ALLOCATION_EMA` / `ALLOCATION_DM` — sleeve split. Default 50/50; set to 1.0/0.0
-  for EMA-only or 0.0/1.0 for DM-only
+- `ALLOCATION_EMA` / `ALLOCATION_DM` — sleeve split. Ships 1.0/0.0 (EMA-only,
+  the validated configuration); set to 0.5/0.5 to run both sleeves or 0.0/1.0
+  for DM-only
 - `STRATEGY_MODE` — "trend_state" (recommended) or "ema_cross" (legacy)
 - `WATCHLIST` — sourced from `universe.py`; edit there
 - `DUAL_MOMENTUM_RISKY` / `DUAL_MOMENTUM_SAFE` — DM sleeve assets

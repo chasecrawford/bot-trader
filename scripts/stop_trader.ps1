@@ -2,7 +2,7 @@
 # Creates logs\STOP so trader.py exits cleanly on its next loop check.
 # Re-creates the file each poll cycle so multiple instances all see it.
 # Waits up to 370 s then force-kills any survivors.
-$repo    = "C:\Users\Chase\Repos\bot-trader"
+$repo    = (Resolve-Path "$PSScriptRoot\..").Path
 $logFile = "$repo\logs\stop_trader.log"
 function Log {
     param($m)
