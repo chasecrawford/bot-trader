@@ -15,9 +15,7 @@ $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType S4U -RunLevel L
 
 $commonSettings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
-    -MultipleInstances IgnoreNew `
-    -StopIfGoingOnBatteries $false `
-    -DisallowStartIfOnBatteries $false
+    -MultipleInstances IgnoreNew
 
 # ── START TASK ──────────────────────────────────────────────────────────────
 $startAction = New-ScheduledTaskAction `
@@ -31,9 +29,7 @@ $startTrigger = New-ScheduledTaskTrigger `
 $startSettings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 7) `
     -StartWhenAvailable `
-    -MultipleInstances IgnoreNew `
-    -StopIfGoingOnBatteries $false `
-    -DisallowStartIfOnBatteries $false
+    -MultipleInstances IgnoreNew
 
 Register-ScheduledTask `
     -TaskName "BotTrader-Start" `
@@ -57,9 +53,7 @@ $stopTrigger = New-ScheduledTaskTrigger `
 $stopSettings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
     -StartWhenAvailable `
-    -MultipleInstances IgnoreNew `
-    -StopIfGoingOnBatteries $false `
-    -DisallowStartIfOnBatteries $false
+    -MultipleInstances IgnoreNew
 
 Register-ScheduledTask `
     -TaskName "BotTrader-Stop" `
@@ -84,9 +78,7 @@ $dmTrigger = New-ScheduledTaskTrigger `
 $dmSettings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
     -StartWhenAvailable `
-    -MultipleInstances IgnoreNew `
-    -StopIfGoingOnBatteries $false `
-    -DisallowStartIfOnBatteries $false
+    -MultipleInstances IgnoreNew
 
 Register-ScheduledTask `
     -TaskName "BotTrader-DualMomentum" `
