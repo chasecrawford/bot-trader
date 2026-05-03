@@ -40,6 +40,35 @@ risk premium). See `STRATEGY.md` for the full mechanism explanation.
   Win comes over full cycles that include bear markets.
 - Short-term capital gains tax can add 2-5% annual drag in a taxable account.
 
+## Paper-trading experience
+
+The EMA sleeve has been running on Alpaca's paper trading endpoint
+(`ALLOCATION_EMA = 1.0`, `ALLOCATION_DM = 0.0`). Two non-obvious bugs
+surfaced in live execution that the backtest didn't catch — both are
+fixed in tree, but they're documented here because they're exactly
+the kind of issues anyone running this code is likely to think about:
+
+- **Re-entry too soon after a stop-out.** When a position stopped out
+  and a buy signal re-fired the next day, the strategy would buy back
+  in immediately — converting the stop-loss into churn. Now blocked
+  for at least 5 calendar days **and** until price recovers above the
+  stop level (hard expiry at 30 days), tracked per-symbol in
+  `stop_cooldown.py`. See commit `fix: buy cooldown after stop`.
+- **Position cap selected alphabetically, not by conviction.** When
+  more than `MAX_OPEN_POSITIONS` (10) signals fired the same day, the
+  cap was filled in `bars_by_symbol` insertion order, which happened
+  to be alphabetical — so AAPL would beat NVDA on a tied day even when
+  NVDA had stronger momentum. Eligible buys are now sorted by
+  trailing-return momentum score before the cap is applied
+  (`trader.py:518`). See commit `fixes`.
+
+These are the kind of bugs that **only show up under live daily
+execution**: backtest never simulates the next-tick re-entry path
+crisply enough to expose the first, and `bars_by_symbol` ordering
+happened to align well enough with momentum strength on backtest dates
+to mask the second. If you hardstop your trust at "the backtest looks
+clean" you'll ship them.
+
 ## Project structure
 
 ```

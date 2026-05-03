@@ -39,6 +39,30 @@ Unregister-ScheduledTask -TaskName "BotTrader-Stop"         -Confirm:$false
 Unregister-ScheduledTask -TaskName "BotTrader-DualMomentum" -Confirm:$false
 ```
 
+## Troubleshooting
+
+**`register_tasks.ps1` says `OK ... registered` but the tasks don't run.**
+PowerShell cmdlet errors are non-terminating by default, so
+`Register-ScheduledTask` can fail and the script will still print the
+"OK" line. Always verify after running:
+
+```powershell
+Get-ScheduledTask BotTrader-Start, BotTrader-Stop, BotTrader-DualMomentum |
+    Format-Table TaskName, State
+```
+
+If fewer than three tasks come back (or any are `Disabled`), re-run
+`register_tasks.ps1` with `$ErrorActionPreference = 'Stop'` set first to
+surface the underlying error.
+
+**Battery-plan flags rejected on newer ScheduledTasks modules.** Earlier
+versions of this repo passed `-StopIfGoingOnBatteries $false` and
+`-DisallowStartIfOnBatteries $false` to `New-ScheduledTaskSettingsSet`.
+Some PowerShell versions reject those parameters outright (the script
+silently fails — see above). They've since been removed; the defaults
+are correct for plugged-in desktop deployment. Fixed in commit
+`fix: drop battery flags rejected by newer ScheduledTasks module`.
+
 ## What the scripts assume
 
 - A virtualenv at `.venv\` in the repo root (created by `python -m venv .venv`
