@@ -176,6 +176,28 @@ For production, schedule `live_dual_momentum.py` via cron / Task Scheduler:
 `trader.py` should be run as a long-lived process. On Linux: `tmux` / `nohup` /
 systemd. On Windows: a persistent terminal or Task Scheduler "at startup."
 
+#### Graceful shutdown (cross-platform)
+
+`trader.py` polls for a sentinel file `logs/STOP` on every tick. Creating that
+file makes the trader finish its current iteration and exit cleanly — no
+SIGKILL, no half-submitted orders. The mechanism is pure Python and works on
+any OS:
+
+```bash
+# Linux/macOS — graceful stop:
+touch logs/STOP
+
+# Windows — graceful stop:
+New-Item -Path "logs\STOP" -ItemType File -Force
+```
+
+Pair this with your scheduler of choice. The `scripts/` directory ships
+ready-made **Windows Task Scheduler** wrappers (`start_trader.ps1`,
+`stop_trader.ps1`, `register_tasks.ps1`); see `scripts/README.md`. On Linux,
+build the equivalent with a systemd service + timer or a cron pair; on macOS,
+launchd or cron. The portable primitive is the `logs/STOP` sentinel —
+everything else is just a scheduler-specific wrapper around it.
+
 ## Capital requirements
 
 The strategy uses **Alpaca's fractional share API** (notional/dollar-based orders),
