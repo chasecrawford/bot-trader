@@ -20,23 +20,25 @@ Allocation between sleeves is set in `config.py` (`ALLOCATION_EMA`, `ALLOCATION_
 
 ## Validated backtest performance
 
-EMA-sleeve strategy ("v2 trend-state") on a 234-name 2020-vintage US-large-cap
-universe, including international ADRs and sector ETFs:
+19-year comparison (2007-04-21 to 2026-04-21) on $1,000 initial capital, all
+returns include dividend reinvestment:
 
-| Window | Total return | Sharpe | Max DD | Alpha vs SPY |
+| Investment | Total return | Final value | Sharpe | Max DD |
 |---|---:|---:|---:|---:|
-| 2007-2024 (incl. GFC) | +456% | +0.40 | 33.75% | **+139.65 pp** |
-| 2020-2024 (no real bear) | +48% | +0.31 | 19.95% | -33.50% |
+| **EMA v2 strategy** | **+768%** | **$8,677** | **+0.48** | **34%** |
+| SPY (total return, dividends reinvested) | +615% | $7,150 | ~0.55 | 56% |
+| BIL (T-bills, "no-risk") | +29% | $1,286 | — | ~0% |
 
-DM-sleeve strategy (canonical Antonacci GEM, top 1 of SPY/EFA/AGG):
+**EMA beats SPY total return by +153 percentage points over 19 years** with
+nearly half SPY's max drawdown. Both beat T-bills by a huge margin (equity
+risk premium). See `STRATEGY.md` for the full mechanism explanation.
 
-| Window | Total return | Sharpe | Max DD | Alpha vs SPY |
-|---|---:|---:|---:|---:|
-| 2007-2024 | +156% | +0.16 | 33.86% | -160.57% |
-
-**Both strategies have well-understood character:** they reduce drawdowns vs SPY
-and beat SPY over long cycles that include real bear markets. They underperform
-SPY in pure bull windows like 2020-2024.
+**Important caveats:**
+- These are gross backtest results; real-world friction reduces returns by
+  0.5-1% per year at $5k+ capital, more at smaller scale.
+- The strategy underperforms SPY in pure-bull sub-windows (e.g., 2020-2024).
+  Win comes over full cycles that include bear markets.
+- Short-term capital gains tax can add 2-5% annual drag in a taxable account.
 
 ## Project structure
 
@@ -57,7 +59,7 @@ bot-trader/
 ├── monitoring.py              # Logging + heartbeat
 ├── trades_cli.py              # CLI to query trade_log.py
 ├── smoke_test.py              # One-shot Alpaca auth verification
-├── tests/                     # 96 unit tests — run with `pytest`
+├── tests/                     # 97 unit tests — run with `pytest`
 ├── logs/                      # Trader log + heartbeat + orders.csv
 ├── requirements.txt
 └── README.md
@@ -80,7 +82,15 @@ generate an API key pair from the dashboard.
 
 ### 3. Create `.env`
 
-In the project root, create a file named `.env` with these *exact* names:
+Copy the template and fill in your keys:
+
+```bash
+cp .env.example .env
+# then edit .env with your real paper-trading keys
+```
+
+The file needs these *exact* variable names (not the `APCA_*` names used by
+Alpaca's SDK internally):
 
 ```
 ALPACA_API_KEY=your_key_id
@@ -88,8 +98,7 @@ ALPACA_API_SECRET=your_secret
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 ```
 
-(`.env` is in `.gitignore`. Don't commit it. The codebase reads `ALPACA_*` —
-NOT the `APCA_*` names that Alpaca's SDK uses internally.)
+`.env` is in `.gitignore`; never commit real keys.
 
 ### 4. Verify auth
 
@@ -102,11 +111,15 @@ Should print `✓ Authenticated.` and show your paper account balance.
 ### 5. Review `config.py`
 
 Key settings to check:
-- `ALLOCATION_EMA` / `ALLOCATION_DM` — sleeve split (default 50/50)
+- `ALLOCATION_EMA` / `ALLOCATION_DM` — sleeve split. Default 50/50; set to 1.0/0.0
+  for EMA-only or 0.0/1.0 for DM-only
 - `STRATEGY_MODE` — "trend_state" (recommended) or "ema_cross" (legacy)
 - `WATCHLIST` — sourced from `universe.py`; edit there
 - `DUAL_MOMENTUM_RISKY` / `DUAL_MOMENTUM_SAFE` — DM sleeve assets
 - `MAX_OPEN_POSITIONS` — how many EMA positions to hold (default 10)
+- `MAX_POSITION_PCT` — max % of sleeve per position (default 0.09).
+  With 10 positions, this gives 90% max gross exposure — a 10% safety buffer
+  against accidentally using margin.
 
 ## Operational commands
 
@@ -194,6 +207,20 @@ The point of this project is **risk-adjusted return with bounded drawdowns**, no
 beating SPY in every window. If you can't tolerate a multi-year stretch where
 SPY beats you, don't run tactical strategies — buy and hold an index fund.
 
+## Margin safety
+
+Alpaca paper and real accounts default to **margin accounts** with 2× buying power.
+This project has **three layers of protection** against accidentally using margin:
+
+1. `MAX_POSITION_PCT = 0.09` with `MAX_OPEN_POSITIONS = 10` → 90% max gross
+   exposure, leaving 10% cash buffer against price drift.
+2. **Hard pre-submission check in `trader.py`**: refuses any order that would
+   exceed available cash (you'll see a log line: `Skip XYZ: would use margin`).
+3. Position sizing uses `equity`, not `buying_power`, throughout.
+
+The buying-power number Alpaca displays will be 2× your cash, but **the strategy
+will never use the margin half** — guaranteed by code + config.
+
 ## Caveats
 
 - **Survivorship bias is impossible to fully eliminate** with retail data sources.
@@ -203,9 +230,15 @@ SPY beats you, don't run tactical strategies — buy and hold an index fund.
   Less reliable for thinly-traded ADRs.
 - **PDT rule**: US accounts under $25k are limited to 3 day-trades per 5 business
   days. The strategies are daily-timeframe so PDT rarely binds, but be aware.
-- **Backtests assume zero commission** (Alpaca's model) and fills at the close.
-  Real fills will differ. Slippage on liquid names is small (~5 bp); on ADRs and
-  smaller caps it's larger.
+- **Backtests use yfinance dividend-adjusted prices** (since a recent fix) so both
+  strategy returns and the SPY benchmark reflect total return. Commissions are $0
+  on Alpaca; slippage and regulatory fees are NOT modeled and add ~0.5-1%/yr of
+  friction in real deployment.
+
+## Further reading
+
+- `STRATEGY.md` — deep-dive on the EMA v2 strategy mechanics, why it works (and
+  doesn't), and where each piece lives in code.
 
 ## Tests
 
@@ -213,4 +246,4 @@ SPY beats you, don't run tactical strategies — buy and hold an index fund.
 pytest -q
 ```
 
-Should report 96 passed.
+Should report 97 passed.

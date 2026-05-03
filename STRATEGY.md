@@ -93,39 +93,44 @@ edit there and re-run any backtest.
 
 ## Performance character
 
-Validated on 18 years (2007-01-01 to 2024-12-31) of yfinance daily bars on the
-234-name universe:
+Validated on 19 years (2007-04-21 to 2026-04-21) of yfinance daily bars on the
+234-name universe, with dividend reinvestment on both sides of the comparison:
 
-| Metric | Strategy | SPY |
+| Metric | Strategy | SPY (total return) |
 |---|---:|---:|
-| Total return | **+456%** | +316% |
-| Annualized return | ~10% | ~8% |
-| Sharpe ratio | **+0.40** | +0.30 |
+| Total return | **+768%** | +615% |
+| Annualized return | ~11.5% | ~10.7% |
+| Sharpe ratio | **+0.48** | ~0.55 |
 | Max drawdown | **34%** | 56% |
-| Alpha vs SPY | **+140 pp** | — |
-| Trades over 18 yr | 1,940 | — |
-| Win rate | 41.6% | — |
-| Avg win / avg loss | $200 / $102 | — |
+| Alpha vs SPY | **+153 pp** | — |
+| Trades over 19 yr | 2,505 | — |
+| Win rate | 43.6% | — |
+| Avg win / avg loss | $22 / $12 (at $1k scale) | — |
 
-**The 18-year picture is unambiguously good**: beats SPY on absolute return, Sharpe,
-and drawdown simultaneously. Most of the alpha was earned during 2008-2009 (when
-regime + drop-out exits avoided most of the GFC) and 2022 (when same mechanisms
-avoided most of the bear). Over the long run the strategy compounds more capital
-because it loses less in bear regimes.
+**The 19-year picture is clean**: beats SPY total return by 153 percentage
+points, with materially lower drawdowns. Most of the alpha was earned during
+2008-2009 (when regime + drop-out exits avoided most of the GFC) and 2022
+(same mechanism on the tech/growth bear). Over full cycles, the strategy
+compounds more capital because it loses less in bear regimes.
 
-**But on shorter sub-windows the picture is mixed.** On 2020-2024 specifically:
+Note: SPY's Sharpe in this window is slightly higher than the strategy's (~0.55
+vs 0.48) because SPY has no cash drag in bull regimes. Strategy wins on
+absolute return and drawdown; SPY wins marginally on risk-adjusted returns.
 
-| Metric | Strategy | SPY |
+**But on shorter sub-windows the picture is mixed.** On 2020-2024 specifically
+(an uninterrupted bull market with one shallow 2022 bear), the strategy
+trailed SPY meaningfully:
+
+| Metric | Strategy | SPY total return |
 |---|---:|---:|
-| Total return | +48% | +81% |
-| Sharpe | 0.31 | 0.48 |
-| Max drawdown | 20% | 34% |
-| Alpha vs SPY | -33 pp | — |
+| Total return (approx.) | ~+50% | ~+90% |
+| Sharpe | ~0.31 | ~0.48 |
+| Max drawdown | ~20% | ~34% |
+| Alpha vs SPY | ~-40 pp | — |
 
-This window is essentially uninterrupted bull market (one shallow 2022 bear).
 **Any tactical strategy with cash drag loses to buy-and-hold in a regime like
 this.** The strategy still has positive Sharpe and meaningfully lower max DD,
-but it doesn't beat SPY on return.
+but it doesn't beat SPY on absolute return when bear markets don't arrive.
 
 This is the honest character of momentum strategies: **outperform over full
 cycles, underperform in bull-only sub-windows.** Whether you experience the
