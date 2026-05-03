@@ -70,7 +70,35 @@ Register-ScheduledTask `
     -Force | Out-Null
 Write-Host "OK  BotTrader-Stop registered."
 
+# ── DUAL-MOMENTUM TASK ──────────────────────────────────────────────────────
+# Daily run; the script no-ops on non-month-end days via Alpaca's calendar.
+$dmAction = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$repo\scripts\start_dual_momentum.ps1`"" `
+    -WorkingDirectory $repo
+
+$dmTrigger = New-ScheduledTaskTrigger `
+    -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "15:00"
+
+$dmSettings = New-ScheduledTaskSettingsSet `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
+    -StartWhenAvailable `
+    -MultipleInstances IgnoreNew `
+    -StopIfGoingOnBatteries $false `
+    -DisallowStartIfOnBatteries $false
+
+Register-ScheduledTask `
+    -TaskName "BotTrader-DualMomentum" `
+    -Action $dmAction `
+    -Trigger $dmTrigger `
+    -Principal $principal `
+    -Settings $dmSettings `
+    -Description "Run GEM dual-momentum rebalance check at 15:00 ET Mon-Fri (no-op except month-end)" `
+    -Force | Out-Null
+Write-Host "OK  BotTrader-DualMomentum registered."
+
 Write-Host ""
 Write-Host "Done. Verifying..."
-schtasks /Query /TN "BotTrader-Start" /FO LIST | Select-String "Task Name|Status|Next Run"
-schtasks /Query /TN "BotTrader-Stop"  /FO LIST | Select-String "Task Name|Status|Next Run"
+schtasks /Query /TN "BotTrader-Start"        /FO LIST | Select-String "Task Name|Status|Next Run"
+schtasks /Query /TN "BotTrader-Stop"         /FO LIST | Select-String "Task Name|Status|Next Run"
+schtasks /Query /TN "BotTrader-DualMomentum" /FO LIST | Select-String "Task Name|Status|Next Run"
