@@ -33,6 +33,7 @@ except ImportError:
 import config
 from equity_history import EquitySnapshotLog
 from monitoring import Heartbeat, setup_logging
+from opened_today import OpenedTodayRegistry
 from stop_cooldown import StopCooldownRegistry
 from order_log import record_order
 from risk_manager import RiskManager
@@ -90,6 +91,16 @@ class Trader:
                                            "heartbeat.json"))
         # Track entry time per position so we can log a full round-trip at exit.
         self._entry_times: dict[str, datetime] = {}
+        # Symbols the bot bought on the current UTC date. Populated only when
+        # WE submit a buy — synced positions are excluded since we can't tell
+        # whether they were opened today or earlier. Drives the PDT guardrail
+        # in submit_sell. Persisted so a mid-session restart still recognizes
+        # same-day round-trips. Pruned at startup to drop entries from prior
+        # sessions.
+        self._opened_today = OpenedTodayRegistry(
+            getattr(config, "OPENED_TODAY_FILE", "logs/opened_today.json")
+        )
+        self._opened_today.prune(datetime.now(timezone.utc).date())
         # Persistent cooldown registry — blocks re-entry after a stop-out for
         # >= 5 days AND until price recovers above the stop level (hard expiry
         # after 30 days). Survives daily restarts via a JSON file.
@@ -369,12 +380,44 @@ class Trader:
 
         self.risk.register_entry(symbol, fill_price, fill_qty,
                                  atr_at_entry=atr_at_entry)
-        self._entry_times[symbol] = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        self._entry_times[symbol] = now
+        self._opened_today.record_open(symbol, now.date())
         log.info("BUY  %s x%s @ $%.2f (filled)", symbol, fill_qty, fill_price)
         record_order(sleeve="ema", symbol=symbol, side="buy", qty=fill_qty,
                      price=fill_price, order_id=order.id, status="filled",
                      reason="Trend entry")
         return True
+
+    # FINRA PDT rule: a non-PDT-flagged account under $25k equity that executes
+    # a 4th day-trade in any rolling 5-business-day window gets flagged and
+    # restricted to closing-only for 90 days. We'd rather skip a stop-out
+    # (and retry next tick) than trip the flag.
+    PDT_EQUITY_FLOOR = 25_000.0
+    PDT_DAYTRADE_CEILING = 3
+
+    def _would_breach_pdt(self, symbol: str) -> bool:
+        """True iff selling `symbol` now would be a 4th day-trade in 5 business days.
+
+        A day-trade is a same-symbol buy + sell on the same broker session.
+        We only know that's the case when WE bought today (sync'd positions are
+        not flagged — see __init__). Alpaca's daytrade_count gives the rolling
+        5-business-day total. Fails open on API errors so transient hiccups
+        don't strand a stop-out.
+        """
+        today = datetime.now(timezone.utc).date()
+        if not self._opened_today.was_opened_on(symbol, today):
+            return False
+        try:
+            account = self.api.get_account()
+        except Exception as exc:
+            log.warning("PDT check: account fetch failed (%s); allowing sell.", exc)
+            return False
+        equity = float(getattr(account, "equity", 0) or 0)
+        if equity >= self.PDT_EQUITY_FLOOR:
+            return False
+        daytrade_count = int(getattr(account, "daytrade_count", 0) or 0)
+        return daytrade_count >= self.PDT_DAYTRADE_CEILING
 
     def submit_sell(self, symbol: str, qty: float, price: float, reason: str) -> bool:
         if self.dry_run:
@@ -383,6 +426,15 @@ class Trader:
             record_order(sleeve="ema", symbol=symbol, side="sell", qty=qty,
                          price=price, order_id="DRY-RUN", status="dry-run",
                          reason=reason)
+            return False
+        if self._would_breach_pdt(symbol):
+            log.warning(
+                "PDT guardrail: refusing same-day SELL of %s (%s). "
+                "Account at day-trade ceiling; will retry next tick or after rollover.",
+                symbol, reason,
+            )
+            record_order(sleeve="ema", symbol=symbol, side="sell", qty=qty,
+                         price=price, status="blocked-pdt", reason=reason)
             return False
         try:
             order = self.api.submit_order(
@@ -420,6 +472,7 @@ class Trader:
         pos = self.risk.positions.get(symbol)
         entry_price = pos.entry_price if pos else fill_price
         entry_time = self._entry_times.pop(symbol, datetime.now(timezone.utc))
+        self._opened_today.record_close(symbol)
 
         self.risk.register_exit(symbol)
 
