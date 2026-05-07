@@ -40,6 +40,7 @@ from strategy import (
     MomentumStrategy,
     Signal,
     TrendStateStrategy,
+    atr,
     cross_sectional_momentum_filter,
     market_regime_bullish,
 )
@@ -108,20 +109,54 @@ class Trader:
             log.warning("Could not fetch existing positions: %s", exc)
             return
 
-        for p in positions:
-            if p.symbol in config.WATCHLIST:
-                self.risk.register_entry(
-                    symbol=p.symbol,
-                    entry_price=float(p.avg_entry_price),
-                    qty=float(p.qty),
-                )
-                # We don't know the true entry time from this call; use "now"
-                # so subsequent P&L logging still has a valid timestamp.
-                self._entry_times[p.symbol] = datetime.now(timezone.utc)
-                log.info(
-                    "Synced existing position: %s x%s @ $%.2f",
-                    p.symbol, p.qty, float(p.avg_entry_price),
-                )
+        held = [p for p in positions if p.symbol in config.WATCHLIST]
+        if not held:
+            return
+
+        # Backfill ATR so synced positions use the ATR trailing stop instead
+        # of falling through to the (disabled) percent trail. ATR is computed
+        # from current bars rather than at the true entry — a best estimate
+        # for orphan positions whose entry-time volatility we no longer have.
+        bars_by_symbol = self.get_bars_batch([p.symbol for p in held])
+
+        for p in held:
+            entry_price = float(p.avg_entry_price)
+            atr_at_entry: Optional[float] = None
+            high_water_mark: Optional[float] = None
+            bars = bars_by_symbol.get(p.symbol)
+            if bars is not None and len(bars) >= config.ATR_PERIOD:
+                last_atr = atr(
+                    bars["high"], bars["low"], bars["close"], config.ATR_PERIOD,
+                ).iloc[-1]
+                if pd.notna(last_atr) and last_atr > 0:
+                    atr_at_entry = float(last_atr)
+                    # Backfill HWM from recent peak so the trail can protect
+                    # gains already accrued. 90-bar window covers typical
+                    # holding periods. Clamp so the trail never starts above
+                    # current price (would insta-stop on the next tick).
+                    window = bars.tail(90)
+                    recent_high = float(window["high"].max())
+                    last_close = float(window["close"].iloc[-1])
+                    trail_floor = last_close + config.ATR_TRAIL_MULT * atr_at_entry
+                    high_water_mark = max(entry_price, min(recent_high, trail_floor))
+
+            self.risk.register_entry(
+                symbol=p.symbol,
+                entry_price=entry_price,
+                qty=float(p.qty),
+                atr_at_entry=atr_at_entry,
+            )
+            if high_water_mark is not None:
+                self.risk.positions[p.symbol].high_water_mark = high_water_mark
+            # We don't know the true entry time from this call; use "now"
+            # so subsequent P&L logging still has a valid timestamp.
+            self._entry_times[p.symbol] = datetime.now(timezone.utc)
+            log.info(
+                "Synced existing position: %s x%s @ $%.2f (ATR=%s, HWM=$%.2f)",
+                p.symbol, p.qty, entry_price,
+                f"{atr_at_entry:.2f}" if atr_at_entry else "n/a",
+                high_water_mark if high_water_mark is not None else entry_price,
+            )
 
     # ------------------------------------------------------------------ #
     # Market data                                                        #
