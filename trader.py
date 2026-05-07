@@ -31,6 +31,7 @@ except ImportError:
     raise
 
 import config
+from equity_history import EquitySnapshotLog
 from monitoring import Heartbeat, setup_logging
 from stop_cooldown import StopCooldownRegistry
 from order_log import record_order
@@ -82,6 +83,8 @@ class Trader:
         self.strategy = _make_strategy()
         self.risk = RiskManager()
         self.trade_log = TradeLog(getattr(config, "TRADE_LOG_DB", "trades.db"))
+        self.equity_log = EquitySnapshotLog(getattr(config, "TRADE_LOG_DB",
+                                                    "trades.db"))
         self.heartbeat = Heartbeat(getattr(config, "HEARTBEAT_FILE",
                                            "heartbeat.json"))
         # Track entry time per position so we can log a full round-trip at exit.
@@ -617,6 +620,14 @@ class Trader:
             )
         except Exception as exc:
             log.warning("Heartbeat write failed: %s", exc)
+
+        # 4. Record daily equity snapshot. Idempotent per UTC date — first
+        #    tick of the day inserts, later ticks no-op via the UNIQUE
+        #    constraint. Failure must not kill a tick.
+        try:
+            self.equity_log.record(equity=total_equity)
+        except Exception as exc:
+            log.warning("Equity snapshot record failed: %s", exc)
 
     def run(self, once: bool = False, ignore_market_hours: bool = False) -> None:
         mode = (

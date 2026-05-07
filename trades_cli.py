@@ -16,11 +16,18 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
+# REST is imported at module level (rather than lazily inside the position
+# helper) so tests can monkey-patch `trades_cli.REST` to inject a mock client
+# without going through the alpaca SDK's import machinery.
+from alpaca_trade_api.rest import REST
+
 import config
+from equity_history import EquitySnapshotLog
 from trade_log import TradeLog
 
 
@@ -121,6 +128,97 @@ def cmd_list(args) -> int:
     return 0
 
 
+def _read_open_position_symbols(heartbeat_path: str) -> List[str]:
+    """Return the list of currently-held symbols from heartbeat.json's
+    `open_positions` map. Returns [] for any failure mode (missing file,
+    malformed JSON, missing key) — equity-history's contract is that
+    `positions` always exists, even when it's empty.
+    """
+    try:
+        with open(heartbeat_path) as f:
+            hb = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    open_positions = hb.get("open_positions") or {}
+    return sorted(open_positions.keys())
+
+
+def _fetch_position_symbols_from_alpaca() -> List[str]:
+    """Pull the live list of held symbols from Alpaca. Raises on any
+    failure (auth, network, missing creds) — caller catches to fall back
+    to the heartbeat file.
+    """
+    api = REST(
+        key_id=config.API_KEY,
+        secret_key=config.API_SECRET,
+        base_url=config.BASE_URL,
+    )
+    return sorted(p.symbol for p in api.list_positions())
+
+
+def _resolve_position_symbols(heartbeat_path: str) -> List[str]:
+    """Resolve the currently-held symbol list, preferring Alpaca live state
+    over the heartbeat file. Order:
+
+      1. Try Alpaca's `list_positions()` — source of truth.
+      2. On any failure, fall back to `heartbeat.json`'s open_positions map.
+      3. If both fail, return [].
+
+    The heartbeat fallback exists because the bot might be running on a
+    machine without Alpaca creds (e.g., a read-only reporting host) — the
+    heartbeat is a best-effort cached snapshot in that case.
+    """
+    try:
+        return _fetch_position_symbols_from_alpaca()
+    except Exception:
+        return _read_open_position_symbols(heartbeat_path)
+
+
+def cmd_equity_history(args) -> int:
+    """Dump the recorded equity series as JSON for downstream consumers
+    (e.g. a website-side chart). Output shape:
+
+        {
+          "start_date": "2026-04-22",      # earliest snapshot for this sleeve
+          "as_of": "2026-05-03T...",       # timestamp of the newest snapshot
+          "snapshots": [{"date": ..., "equity": ...}, ...],  # oldest → newest
+          "positions": ["AAPL", "MSFT", ...]                 # currently held
+        }
+
+    --days N            → N most recent calendar days (includes weekends)
+    --trading-days N    → N most recent weekdays (Sat/Sun excluded)
+    """
+    log = EquitySnapshotLog(args.db)
+    if args.trading_days is not None:
+        snapshots = log.recent(
+            days=args.trading_days, sleeve=args.sleeve, weekday_only=True,
+        )
+    else:
+        snapshots = log.recent(days=args.days, sleeve=args.sleeve)
+
+    payload = {
+        "start_date": log.start_date(sleeve=args.sleeve),
+        "as_of": (
+            snapshots[-1].timestamp.astimezone(timezone.utc).isoformat()
+            if snapshots else None
+        ),
+        "snapshots": [
+            {"date": s.timestamp.astimezone(timezone.utc).date().isoformat(),
+             "equity": s.equity}
+            for s in snapshots
+        ],
+        "positions": _resolve_position_symbols(args.heartbeat),
+    }
+
+    text = json.dumps(payload, indent=2)
+    if args.output:
+        with open(args.output, "w") as f:
+            f.write(text)
+    else:
+        print(text)
+    return 0
+
+
 def cmd_export(args) -> int:
     log = TradeLog(args.db)
     rows = _filter_rows(
@@ -171,6 +269,28 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("path", help="Destination CSV path")
     _add_filters(sp)
     sp.set_defaults(func=cmd_export)
+
+    sp = sub.add_parser(
+        "equity-history",
+        help="Dump recorded daily equity snapshots as JSON",
+    )
+    sp.add_argument("--db", default=getattr(config, "TRADE_LOG_DB", "trades.db"),
+                    help="Path to the SQLite trade log")
+    # --days and --trading-days are mutually exclusive: callers pick one
+    # rather than relying on a silent precedence rule.
+    window = sp.add_mutually_exclusive_group()
+    window.add_argument("--days", type=int, default=7,
+                        help="Number of most recent calendar days (default 7)")
+    window.add_argument("--trading-days", dest="trading_days", type=int,
+                        default=None,
+                        help="Number of most recent trading days (Sat/Sun excluded)")
+    sp.add_argument("--sleeve", default="total",
+                    help="Sleeve to dump: 'total' (default), 'ema', 'dm'")
+    sp.add_argument("--heartbeat",
+                    default=getattr(config, "HEARTBEAT_FILE", "heartbeat.json"),
+                    help="Path to heartbeat.json (for current positions list)")
+    sp.add_argument("--output", help="Write JSON to this file (defaults to stdout)")
+    sp.set_defaults(func=cmd_equity_history)
 
     return p
 

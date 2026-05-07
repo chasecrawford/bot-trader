@@ -85,10 +85,11 @@ bot-trader/
 ├── data_source.py             # yfinance / Alpaca data adapters (used by backtests)
 ├── trade_log.py               # SQLite round-trip trade log (EMA sleeve)
 ├── order_log.py               # CSV per-order log (both sleeves)
+├── equity_history.py          # Daily equity snapshots (idempotent per UTC date)
 ├── monitoring.py              # Logging + heartbeat
-├── trades_cli.py              # CLI to query trade_log.py
+├── trades_cli.py              # CLI to query trade_log.py + equity snapshots
 ├── smoke_test.py              # One-shot Alpaca auth verification
-├── tests/                     # 97 unit tests — run with `pytest`
+├── tests/                     # 133 unit tests — run with `pytest`
 ├── logs/                      # Trader log + heartbeat + orders.csv
 ├── requirements.txt
 ├── README.md
@@ -169,6 +170,57 @@ python status.py
 python status.py --sleeve dm        # filter to DM only
 python status.py --orders 50         # show last 50 orders
 ```
+
+### Equity tracking
+
+`trader.py` records one row per UTC day into the `equity_snapshots`
+table in `trades.db` on each heartbeat. The `UNIQUE (date_utc, sleeve)`
+constraint makes this idempotent — first tick of the day inserts,
+later same-day ticks are no-ops, and a restart in the middle of the
+day doesn't corrupt the series.
+
+Dump the recorded series as JSON for downstream consumers (e.g. a
+website chart):
+
+```bash
+# 7 most recent calendar days, total equity, JSON to stdout
+python trades_cli.py equity-history
+
+# 5 most recent trading days (Sat/Sun excluded — better for charts since
+# weekends are no-op equity holds). Holidays aren't excluded; the count
+# is approximate at long horizons.
+python trades_cli.py equity-history --trading-days 5
+
+# Custom window + write to a file (good for scheduled refreshes)
+python trades_cli.py equity-history --trading-days 5 --output paper-equity.json
+
+# Dump the EMA sleeve's series instead of total
+python trades_cli.py equity-history --sleeve ema
+```
+
+`--days` and `--trading-days` are mutually exclusive — pick one.
+
+Output shape:
+
+```json
+{
+  "start_date": "2026-04-22",
+  "as_of": "2026-05-03T12:34:56+00:00",
+  "snapshots": [
+    {"date": "2026-04-27", "equity": 5012.34},
+    {"date": "2026-04-28", "equity": 5018.91}
+  ],
+  "positions": ["AAPL", "MSFT", "NVDA"]
+}
+```
+
+- `start_date` — earliest snapshot recorded for the requested sleeve;
+  useful for labeling charts as "since YYYY-MM-DD" without hardcoding.
+- `positions` — currently-held symbols. Sourced from Alpaca's
+  `list_positions()` API call (live broker state, source of truth).
+  Falls back to `heartbeat.json`'s `open_positions` map if the API call
+  fails (no creds, network down, etc.) — override the heartbeat path
+  with `--heartbeat PATH`. Empty list if both sources fail.
 
 ### Dry-run (full flow but no order submission)
 
